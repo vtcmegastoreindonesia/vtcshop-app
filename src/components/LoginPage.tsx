@@ -1,3 +1,4 @@
+import { supabase } from '../supabase';
 import React, { useEffect, useState } from 'react';
 import {
   Mail,
@@ -151,41 +152,42 @@ export const LoginPage: React.FC<LoginPageProps> = ({ notice, onSuccess }) => {
   };
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (lockoutUntil && Date.now() < lockoutUntil) return;
-    setError('');
-    setLoading(true);
-    try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          identifier: loginIdentifier.trim(),
-          password: loginPassword,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        if (res.status === 423 && data.lockedUntil) {
-          setLockoutUntil(Number(data.lockedUntil));
-          setLockoutTick(Number(data.remainingSeconds || 300));
-          setSecurityAlertEmail(data.alertEmail || 'Email terdaftar');
-        }
-        throw new Error(data.error || 'Gagal login');
-      }
-      setLockoutUntil(0);
-      setSecurityAlertEmail('');
-      finishAuth(
-        data.token,
-        data.user,
-        `Selamat datang kembali, ${data.user.name}!`
-      );
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Gagal login');
-    } finally {
-      setLoading(false);
+  e.preventDefault();
+  if (lockoutUntil && Date.now() < lockoutUntil) return;
+  setError('');
+  setLoading(true);
+  try {
+    if (loginMethod === 'password' && (!loginIdentifier.trim() || !loginPassword.trim())) {
+      throw new Error('Silakan masukkan identifier dan password.');
     }
-  };
+    if (loginMethod === 'password' && !captchaVerified) {
+      throw new Error('Silakan selesaikan verifikasi keamanan.');
+    }
+    let emailToUse = loginIdentifier.trim();
+    if (!emailToUse.includes('@')) {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('email')
+        .or(`username.eq.${emailToUse},phone.eq.${emailToUse}`)
+        .maybeSingle();
+      if (!profile?.email) throw new Error('Akun dengan No HP / Username itu tidak ditemukan. Coba login pake Email.');
+      emailToUse = profile.email;
+    }
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: emailToUse,
+      password: loginPassword,
+    });
+    if (error) throw error;
+    if (!data.session || !data.user) throw new Error('Login gagal, session tidak ditemukan');
+    setLockoutUntil(0);
+    setSecurityAlertEmail('');
+    finishAuth(data.session.access_token, data.user, rememberMe ? 'local' : 'session');
+  } catch (err: any) {
+    setError(err.message || 'Gagal login');
+  } finally {
+    setLoading(false);
+  }
+};
 
   // Daftar Step 2 -> Kirim OTP setelah CAPTCHA Geser terverifikasi
   const handleSendPhoneRegOtp = async () => {
