@@ -1,0 +1,8 @@
+{
+  "name": "Remix VTC SHOP INDONESIA",
+  "description": "Marketplace COD mobile-first berbahasa Indonesia VTC SHOP INDONESIA dengan fitur Buyer, Seller, dan Admin.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
