@@ -191,35 +191,25 @@ export const LoginPage: React.FC<LoginPageProps> = ({ notice, onSuccess }) => {
 
   // Daftar Step 2 -> Kirim OTP setelah CAPTCHA Geser terverifikasi
   const handleSendPhoneRegOtp = async () => {
-    if (!isRegPhoneValid || !isCaptchaAligned || loading) return;
-    setError('');
+  setCaptchaTarget(generateCaptchaTarget());
+  setCaptchaSlider(0);
+  setCaptchaVisible(true);
+  setCaptchaVerified(false);
+  try {
     setLoading(true);
-    try {
-      const res = await fetch('/api/auth/register/phone-otp/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          phone: cleanRegPhone,
-          role: regRole,
-          captchaSliderVal: captchaSlider,
-          captchaTargetVal: captchaTarget,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Gagal mengirim OTP');
-      setRegPreviewOtp(data.previewOtp || '');
-      setRegOtpCode('');
-      setRegStep(3);
-      showToast(`Kode OTP 6 digit otomatis dikirim ke ${cleanRegPhone}`, 'info');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Gagal mengirim OTP');
-      setCaptchaTarget(generateCaptchaTarget());
-      setCaptchaSlider(0);
-    } finally {
-      setLoading(false);
-    }
-  };
-
+    setError('');
+    const { error } = await supabase.auth.signInWithOtp({
+      phone: regPhone,
+    });
+    if (error) throw error;
+    setRegStep(3);
+  } catch (err: any) {
+    setError(err.message || 'Gagal kirim OTP');
+  } finally {
+    setLoading(false);
+  }
+};
+  
   // Daftar Step 3 -> Verifikasi OTP
   const verifyPhoneRegOtp = async (codeToVerify: string) => {
     const cleanCode = codeToVerify.trim();
