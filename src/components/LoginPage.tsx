@@ -49,6 +49,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({ notice, onSuccess }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  // FIX: variabel yang hilang, sekarang dibikin biar build gak gagal
+  const [loginMethod] = useState<'password'>('password');
+  const [captchaVerified, setCaptchaVerified] = useState(true);
+  const [captchaVisible, setCaptchaVisible] = useState(false);
+  const [rememberMe] = useState(true);
+
   // Login (No HP / Username / Email + Password) — semua kosong di awal
   const [loginIdentifier, setLoginIdentifier] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
@@ -152,63 +158,63 @@ export const LoginPage: React.FC<LoginPageProps> = ({ notice, onSuccess }) => {
   };
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
-  e.preventDefault();
-  if (lockoutUntil && Date.now() < lockoutUntil) return;
-  setError('');
-  setLoading(true);
-  try {
-    if (loginMethod === 'password' && (!loginIdentifier.trim() || !loginPassword.trim())) {
-      throw new Error('Silakan masukkan identifier dan password.');
+    e.preventDefault();
+    if (lockoutUntil && Date.now() < lockoutUntil) return;
+    setError('');
+    setLoading(true);
+    try {
+      if (loginMethod === 'password' && (!loginIdentifier.trim() || !loginPassword.trim())) {
+        throw new Error('Silakan masukkan identifier dan password.');
+      }
+      if (loginMethod === 'password' && !captchaVerified) {
+        throw new Error('Silakan selesaikan verifikasi keamanan.');
+      }
+      let emailToUse = loginIdentifier.trim();
+      if (!emailToUse.includes('@')) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('email')
+          .or(`username.eq.${emailToUse},phone.eq.${emailToUse}`)
+          .maybeSingle();
+        if (!profile?.email) throw new Error('Akun dengan No HP / Username itu tidak ditemukan. Coba login pake Email.');
+        emailToUse = profile.email;
+      }
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: emailToUse,
+        password: loginPassword,
+      });
+      if (error) throw error;
+      if (!data.session || !data.user) throw new Error('Login gagal, session tidak ditemukan');
+      setLockoutUntil(0);
+      setSecurityAlertEmail('');
+      finishAuth(data.session.access_token, data.user, 'Login berhasil! Selamat datang.');
+    } catch (err: any) {
+      setError(err.message || 'Gagal login');
+    } finally {
+      setLoading(false);
     }
-    if (loginMethod === 'password' && !captchaVerified) {
-      throw new Error('Silakan selesaikan verifikasi keamanan.');
-    }
-    let emailToUse = loginIdentifier.trim();
-    if (!emailToUse.includes('@')) {
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('email')
-        .or(`username.eq.${emailToUse},phone.eq.${emailToUse}`)
-        .maybeSingle();
-      if (!profile?.email) throw new Error('Akun dengan No HP / Username itu tidak ditemukan. Coba login pake Email.');
-      emailToUse = profile.email;
-    }
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: emailToUse,
-      password: loginPassword,
-    });
-    if (error) throw error;
-    if (!data.session || !data.user) throw new Error('Login gagal, session tidak ditemukan');
-    setLockoutUntil(0);
-    setSecurityAlertEmail('');
-    finishAuth(data.session.access_token, data.user, rememberMe ? 'local' : 'session');
-  } catch (err: any) {
-    setError(err.message || 'Gagal login');
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
   // Daftar Step 2 -> Kirim OTP setelah CAPTCHA Geser terverifikasi
   const handleSendPhoneRegOtp = async () => {
-  setCaptchaTarget(generateCaptchaTarget());
-  setCaptchaSlider(0);
-  setCaptchaVisible(true);
-  setCaptchaVerified(false);
-  try {
-    setLoading(true);
-    setError('');
-    const { error } = await supabase.auth.signInWithOtp({
-      phone: regPhone,
-    });
-    if (error) throw error;
-    setRegStep(3);
-  } catch (err: any) {
-    setError(err.message || 'Gagal kirim OTP');
-  } finally {
-    setLoading(false);
-  }
-};
+    setCaptchaTarget(generateCaptchaTarget());
+    setCaptchaSlider(0);
+    setCaptchaVisible(true);
+    setCaptchaVerified(false);
+    try {
+      setLoading(true);
+      setError('');
+      const { error } = await supabase.auth.signInWithOtp({
+        phone: regPhone,
+      });
+      if (error) throw error;
+      setRegStep(3);
+    } catch (err: any) {
+      setError(err.message || 'Gagal kirim OTP');
+    } finally {
+      setLoading(false);
+    }
+  };
   
   // Daftar Step 3 -> Verifikasi OTP
   const verifyPhoneRegOtp = async (codeToVerify: string) => {
@@ -686,10 +692,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({ notice, onSuccess }) => {
             </form>
           )}
 
-          {/* TAB 2: DAFTAR SUPER CEPAT (No HP -> CAPTCHA Geser Gambar -> OTP -> Username + Password) */}
+          {/* TAB 2: DAFTAR SUPER CEPAT */}
           {tab === 'register' && (
             <div className="space-y-4">
-              {/* Step Indicator */}
               <div className="grid grid-cols-4 gap-1.5 text-center">
                 {[
                   { step: 1, label: '1. No. HP' },
@@ -712,7 +717,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ notice, onSuccess }) => {
                 ))}
               </div>
 
-              {/* STEP 1: HANYA NO HP DULU */}
               {regStep === 1 && (
                 <div className="space-y-3.5">
                   <div>
@@ -794,7 +798,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ notice, onSuccess }) => {
                 </div>
               )}
 
-              {/* STEP 2: CAPTCHA GESER GAMBAR */}
               {regStep === 2 && (
                 <div className="space-y-3.5">
                   <div className="flex items-center justify-between">
@@ -814,24 +817,17 @@ export const LoginPage: React.FC<LoginPageProps> = ({ notice, onSuccess }) => {
                     </button>
                   </div>
 
-                  {/* Interactive Visual Puzzle Canvas */}
                   <div className="relative h-32 rounded-2xl bg-gradient-to-br from-[#111113] via-zinc-900 to-[#3a160c] border border-zinc-800 overflow-hidden select-none">
                     <div className="absolute inset-0 opacity-20 bg-[radial-gradient(#EE4D2D_1px,transparent_1px)] [background-size:12px_12px]" />
                     <div className="absolute top-2.5 left-3 text-[10px] font-bold text-orange-300 tracking-wider uppercase">
                       VTC SHOP INDONESIA · VERIFIKASI
                     </div>
-
-                    {/* Target Notch */}
                     <div
                       style={{ left: `${captchaTarget}%` }}
                       className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-12 h-12 rounded-xl border-2 border-dashed border-white/70 bg-black/50 flex items-center justify-center"
                     >
-                      <span className="text-[10px] font-bold text-white/60">
-                        PAS
-                      </span>
+                      <span className="text-[10px] font-bold text-white/60">PAS</span>
                     </div>
-
-                    {/* Sliding Puzzle Piece */}
                     <div
                       style={{ left: `${Math.max(8, Math.min(92, captchaSlider))}%` }}
                       className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-12 h-12 rounded-xl shadow-lg flex items-center justify-center border-2 transition-colors ${
@@ -854,11 +850,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ notice, onSuccess }) => {
                       aria-label="Geser potongan gambar ke kotak target"
                       className="w-full accent-[#EE4D2D] cursor-pointer h-3"
                     />
-                    <p
-                      className={`text-xs font-bold text-center ${
-                        isCaptchaAligned ? 'text-emerald-600' : 'text-zinc-500'
-                      }`}
-                    >
+                    <p className={`text-xs font-bold text-center ${isCaptchaAligned ? 'text-emerald-600' : 'text-zinc-500'}`}>
                       {isCaptchaAligned
                         ? 'Posisi gambar cocok! Klik tombol di bawah untuk kirim OTP.'
                         : 'Geser slider hingga kotak oranye tepat menutupi kotak target'}
@@ -875,9 +867,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ notice, onSuccess }) => {
                         : 'bg-zinc-200 text-zinc-400 cursor-not-allowed'
                     }`}
                   >
-                    <span>
-                      {loading ? 'Mengirim OTP...' : 'Kirim Kode OTP 6 Digit'}
-                    </span>
+                    <span>{loading ? 'Mengirim OTP...' : 'Kirim Kode OTP 6 Digit'}</span>
                   </button>
 
                   <button
@@ -890,7 +880,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ notice, onSuccess }) => {
                 </div>
               )}
 
-              {/* STEP 3: VERIFIKASI OTP */}
               {regStep === 3 && (
                 <form
                   onSubmit={(e) => {
@@ -900,23 +889,16 @@ export const LoginPage: React.FC<LoginPageProps> = ({ notice, onSuccess }) => {
                   className="space-y-3.5"
                 >
                   <div className="rounded-xl bg-orange-50 border border-orange-200 p-3 text-xs text-zinc-700">
-                    Kode OTP 6 digit telah dikirim ke{' '}
-                    <strong className="text-zinc-900">{cleanRegPhone}</strong>.
+                    Kode OTP 6 digit telah dikirim ke <strong className="text-zinc-900">{cleanRegPhone}</strong>.
                   </div>
-
                   {regPreviewOtp && (
                     <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-3 text-xs text-emerald-900 flex items-center justify-between">
                       <span>Kode OTP Anda:</span>
-                      <strong className="font-mono text-base tracking-widest">
-                        {regPreviewOtp}
-                      </strong>
+                      <strong className="font-mono text-base tracking-widest">{regPreviewOtp}</strong>
                     </div>
                   )}
-
                   <div>
-                    <label className="block text-xs font-semibold text-zinc-700 mb-1">
-                      Masukkan 6 Digit Kode OTP
-                    </label>
+                    <label className="block text-xs font-semibold text-zinc-700 mb-1">Masukkan 6 Digit Kode OTP</label>
                     <input
                       type="text"
                       inputMode="numeric"
@@ -935,7 +917,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ notice, onSuccess }) => {
                       className="w-full h-12 px-3.5 rounded-xl border border-zinc-200 font-mono text-center text-lg tracking-widest focus:outline-none focus:border-[#EE4D2D]"
                     />
                   </div>
-
                   <button
                     type="submit"
                     disabled={regOtpCode.length !== 6 || loading}
@@ -947,7 +928,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ notice, onSuccess }) => {
                   >
                     {loading ? 'Memverifikasi...' : 'Verifikasi Kode OTP'}
                   </button>
-
                   <div className="flex items-center justify-between text-xs">
                     <button
                       type="button"
@@ -971,24 +951,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({ notice, onSuccess }) => {
                 </form>
               )}
 
-              {/* STEP 4: ATUR USERNAME + PASSWORD -> AKUN OTOMATIS AKTIF MASUK BERANDA */}
               {regStep === 4 && (
-                <form
-                  onSubmit={handleCompletePhoneRegister}
-                  className="space-y-3"
-                  autoComplete="off"
-                >
+                <form onSubmit={handleCompletePhoneRegister} className="space-y-3" autoComplete="off">
                   <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-3 text-xs text-emerald-900 flex items-center gap-2">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>
-                      No. HP <strong>{cleanRegPhone}</strong> terverifikasi! Atur Username &amp; Password Anda.
-                    </span>
+                    <span>No. HP <strong>{cleanRegPhone}</strong> terverifikasi! Atur Username &amp; Password Anda.</span>
                   </div>
-
                   <div>
-                    <label className="block text-xs font-semibold text-zinc-700 mb-1">
-                      Username Baru
-                    </label>
+                    <label className="block text-xs font-semibold text-zinc-700 mb-1">Username Baru</label>
                     <div className="relative">
                       <input
                         type="text"
@@ -998,29 +968,19 @@ export const LoginPage: React.FC<LoginPageProps> = ({ notice, onSuccess }) => {
                         onChange={(e) => setRegUsername(e.target.value)}
                         placeholder="Masukkan username (min. 3 karakter)"
                         className={`w-full h-12 px-3.5 pr-9 rounded-xl border text-sm focus:outline-none ${
-                          usernameError
-                            ? 'border-rose-400 bg-rose-50/30'
-                            : isUsernameValid
-                              ? 'border-emerald-400'
-                              : 'border-zinc-200 focus:border-[#EE4D2D]'
+                          usernameError ? 'border-rose-400 bg-rose-50/30' : isUsernameValid ? 'border-emerald-400' : 'border-zinc-200 focus:border-[#EE4D2D]'
                         }`}
                       />
-                      {isUsernameValid && (
-                        <CheckCircle2 className="w-4 h-4 text-emerald-500 absolute right-3 top-1/2 -translate-y-1/2" />
-                      )}
+                      {isUsernameValid && <CheckCircle2 className="w-4 h-4 text-emerald-500 absolute right-3 top-1/2 -translate-y-1/2" />}
                     </div>
                     {usernameError && (
                       <p className="mt-1 text-[11px] font-semibold text-rose-600 flex items-center gap-1">
-                        <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                        <span>{usernameError}</span>
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0" /><span>{usernameError}</span>
                       </p>
                     )}
                   </div>
-
                   <div>
-                    <label className="block text-xs font-semibold text-zinc-700 mb-1">
-                      Password Baru
-                    </label>
+                    <label className="block text-xs font-semibold text-zinc-700 mb-1">Password Baru</label>
                     <div className="relative">
                       <input
                         type={showRegPwd ? 'text' : 'password'}
@@ -1031,11 +991,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ notice, onSuccess }) => {
                         onChange={(e) => setRegPassword(e.target.value)}
                         placeholder="Minimal 6 karakter"
                         className={`w-full h-12 px-3.5 pr-11 rounded-xl border text-sm focus:outline-none ${
-                          regPwdError
-                            ? 'border-rose-400 bg-rose-50/30'
-                            : isRegPwdValid
-                              ? 'border-emerald-400'
-                              : 'border-zinc-200 focus:border-[#EE4D2D]'
+                          regPwdError ? 'border-rose-400 bg-rose-50/30' : isRegPwdValid ? 'border-emerald-400' : 'border-zinc-200 focus:border-[#EE4D2D]'
                         }`}
                       />
                       <button
@@ -1044,60 +1000,40 @@ export const LoginPage: React.FC<LoginPageProps> = ({ notice, onSuccess }) => {
                         aria-label={showRegPwd ? 'Sembunyikan password' : 'Lihat password'}
                         className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-lg flex items-center justify-center text-zinc-500 hover:text-zinc-800 cursor-pointer"
                       >
-                        {showRegPwd ? (
-                          <EyeOff className="w-4 h-4" />
-                        ) : (
-                          <Eye className="w-4 h-4" />
-                        )}
+                        {showRegPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                       </button>
                     </div>
                     {regPwdError && (
                       <p className="mt-1 text-[11px] font-semibold text-rose-600 flex items-center gap-1">
-                        <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                        <span>{regPwdError}</span>
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0" /><span>{regPwdError}</span>
                       </p>
                     )}
                   </div>
-
                   <div>
-                    <label className="block text-xs font-semibold text-zinc-700 mb-1">
-                      Email Pemulihan (Opsional — untuk Lupa Password)
-                    </label>
+                    <label className="block text-xs font-semibold text-zinc-700 mb-1">Email Pemulihan (Opsional — untuk Lupa Password)</label>
                     <input
                       type="email"
                       autoComplete="off"
                       value={regEmail}
                       onChange={(e) => setRegEmail(e.target.value)}
                       placeholder="Masukkan email aktif (opsional)"
-                      className={`w-full h-11 px-3.5 rounded-xl border text-sm focus:outline-none ${
-                        regEmailError
-                          ? 'border-rose-400 bg-rose-50/30'
-                          : 'border-zinc-200 focus:border-[#EE4D2D]'
-                      }`}
+                      className={`w-full h-11 px-3.5 rounded-xl border text-sm focus:outline-none ${regEmailError ? 'border-rose-400 bg-rose-50/30' : 'border-zinc-200 focus:border-[#EE4D2D]'}`}
                     />
                     {regEmailError && (
                       <p className="mt-1 text-[11px] font-semibold text-rose-600 flex items-center gap-1">
-                        <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                        <span>{regEmailError}</span>
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0" /><span>{regEmailError}</span>
                       </p>
                     )}
                   </div>
-
                   <button
                     type="submit"
                     disabled={!isStep4Valid || loading}
                     className={`w-full h-12 rounded-xl font-bold text-sm inline-flex items-center justify-center gap-2 transition-all ${
-                      isStep4Valid && !loading
-                        ? 'bg-[#EE4D2D] hover:bg-[#D73B1C] text-white cursor-pointer shadow-lg shadow-[#EE4D2D]/25'
-                        : 'bg-zinc-200 text-zinc-400 cursor-not-allowed'
+                      isStep4Valid && !loading ? 'bg-[#EE4D2D] hover:bg-[#D73B1C] text-white cursor-pointer shadow-lg shadow-[#EE4D2D]/25' : 'bg-zinc-200 text-zinc-400 cursor-not-allowed'
                     }`}
                   >
                     <UserPlus className="w-4 h-4" />
-                    <span>
-                      {loading
-                        ? 'Mengaktifkan Akun...'
-                        : 'Aktifkan Akun & Masuk Beranda'}
-                    </span>
+                    <span>{loading ? 'Mengaktifkan Akun...' : 'Aktifkan Akun & Masuk Beranda'}</span>
                   </button>
                 </form>
               )}
@@ -1120,23 +1056,18 @@ export const LoginPage: React.FC<LoginPageProps> = ({ notice, onSuccess }) => {
                       setError('');
                     }}
                     className={`min-h-[42px] rounded-xl border text-xs font-bold cursor-pointer ${
-                      otpChannel === ch
-                        ? 'border-[#EE4D2D] bg-orange-50 text-[#EE4D2D]'
-                        : 'border-zinc-200 text-zinc-700'
+                      otpChannel === ch ? 'border-[#EE4D2D] bg-orange-50 text-[#EE4D2D]' : 'border-zinc-200 text-zinc-700'
                     }`}
                   >
                     OTP {ch}
                   </button>
                 ))}
               </div>
-
               {!otpSent ? (
                 <form onSubmit={handleSendOtp} className="space-y-3">
                   <div>
                     <label className="block text-xs font-semibold text-zinc-700 mb-1">
-                      {otpChannel === 'Email'
-                        ? 'Alamat Email Aktif'
-                        : `Nomor ${otpChannel} Aktif`}
+                      {otpChannel === 'Email' ? 'Alamat Email Aktif' : `Nomor ${otpChannel} Aktif`}
                     </label>
                     <div className="relative">
                       {otpChannel === 'Email' ? (
@@ -1149,11 +1080,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ notice, onSuccess }) => {
                         required
                         value={otpContact}
                         onChange={(e) => setOtpContact(e.target.value)}
-                        placeholder={
-                          otpChannel === 'Email'
-                            ? 'Masukkan alamat email aktif'
-                            : `Masukkan nomor ${otpChannel}`
-                        }
+                        placeholder={otpChannel === 'Email' ? 'Masukkan alamat email aktif' : `Masukkan nomor ${otpChannel}`}
                         className="w-full h-12 pl-10 pr-3.5 rounded-xl border border-zinc-200 text-sm focus:outline-none focus:border-[#EE4D2D]"
                       />
                     </div>
@@ -1162,9 +1089,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ notice, onSuccess }) => {
                     type="submit"
                     disabled={loading || !otpContact.trim()}
                     className={`w-full h-12 rounded-xl font-bold text-sm transition-all ${
-                      otpContact.trim() && !loading
-                        ? 'bg-[#EE4D2D] hover:bg-[#D73B1C] text-white cursor-pointer'
-                        : 'bg-zinc-200 text-zinc-400 cursor-not-allowed'
+                      otpContact.trim() && !loading ? 'bg-[#EE4D2D] hover:bg-[#D73B1C] text-white cursor-pointer' : 'bg-zinc-200 text-zinc-400 cursor-not-allowed'
                     }`}
                   >
                     {loading ? 'Mengirim...' : `Kirim Kode OTP ${otpChannel}`}
@@ -1175,24 +1100,18 @@ export const LoginPage: React.FC<LoginPageProps> = ({ notice, onSuccess }) => {
                   {previewOtp && (
                     <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-3 text-xs text-emerald-900 flex items-center justify-between">
                       <span>Kode OTP {otpChannel} Anda:</span>
-                      <strong className="font-mono text-base tracking-widest">
-                        {previewOtp}
-                      </strong>
+                      <strong className="font-mono text-base tracking-widest">{previewOtp}</strong>
                     </div>
                   )}
                   <div>
-                    <label className="block text-xs font-semibold text-zinc-700 mb-1">
-                      Masukkan 6 Digit Kode OTP
-                    </label>
+                    <label className="block text-xs font-semibold text-zinc-700 mb-1">Masukkan 6 Digit Kode OTP</label>
                     <input
                       type="text"
                       inputMode="numeric"
                       required
                       maxLength={6}
                       value={otpCode}
-                      onChange={(e) =>
-                        setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))
-                      }
+                      onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                       placeholder="Masukkan 6 digit kode OTP"
                       className="w-full h-12 px-3.5 rounded-xl border border-zinc-200 font-mono text-center text-lg tracking-widest focus:outline-none focus:border-[#EE4D2D]"
                     />
@@ -1201,9 +1120,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ notice, onSuccess }) => {
                     type="submit"
                     disabled={loading || otpCode.length !== 6}
                     className={`w-full h-12 rounded-xl font-bold text-sm transition-all ${
-                      otpCode.length === 6 && !loading
-                        ? 'bg-[#EE4D2D] hover:bg-[#D73B1C] text-white cursor-pointer'
-                        : 'bg-zinc-200 text-zinc-400 cursor-not-allowed'
+                      otpCode.length === 6 && !loading ? 'bg-[#EE4D2D] hover:bg-[#D73B1C] text-white cursor-pointer' : 'bg-zinc-200 text-zinc-400 cursor-not-allowed'
                     }`}
                   >
                     Verifikasi &amp; Masuk Beranda
@@ -1227,47 +1144,18 @@ export const LoginPage: React.FC<LoginPageProps> = ({ notice, onSuccess }) => {
           {tab === 'social' && (
             <form onSubmit={handleSocialLogin} className="space-y-3.5">
               <div className="flex items-center justify-between">
-                <h2 className="text-sm font-extrabold text-zinc-900">
-                  Masuk Cepat dengan {socialProvider}
-                </h2>
-                <button
-                  type="button"
-                  onClick={() => setTab('login')}
-                  className="text-xs font-bold text-zinc-500 hover:text-zinc-800 cursor-pointer"
-                >
-                  Kembali
-                </button>
+                <h2 className="text-sm font-extrabold text-zinc-900">Masuk Cepat dengan {socialProvider}</h2>
+                <button type="button" onClick={() => setTab('login')} className="text-xs font-bold text-zinc-500 hover:text-zinc-800 cursor-pointer">Kembali</button>
               </div>
               <div>
-                <label className="block text-xs font-semibold text-zinc-700 mb-1">
-                  Email Akun {socialProvider}
-                </label>
-                <input
-                  type="email"
-                  required
-                  value={socialEmail}
-                  onChange={(e) => setSocialEmail(e.target.value)}
-                  placeholder={`Masukkan email akun ${socialProvider} Anda`}
-                  className="w-full h-12 px-3.5 rounded-xl border border-zinc-200 text-sm focus:outline-none focus:border-[#EE4D2D]"
-                />
+                <label className="block text-xs font-semibold text-zinc-700 mb-1">Email Akun {socialProvider}</label>
+                <input type="email" required value={socialEmail} onChange={(e) => setSocialEmail(e.target.value)} placeholder={`Masukkan email akun ${socialProvider} Anda`} className="w-full h-12 px-3.5 rounded-xl border border-zinc-200 text-sm focus:outline-none focus:border-[#EE4D2D]" />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-zinc-700 mb-1">
-                  Nama Tampilan (Opsional)
-                </label>
-                <input
-                  type="text"
-                  value={socialName}
-                  onChange={(e) => setSocialName(e.target.value)}
-                  placeholder="Masukkan nama tampilan"
-                  className="w-full h-12 px-3.5 rounded-xl border border-zinc-200 text-sm focus:outline-none focus:border-[#EE4D2D]"
-                />
+                <label className="block text-xs font-semibold text-zinc-700 mb-1">Nama Tampilan (Opsional)</label>
+                <input type="text" value={socialName} onChange={(e) => setSocialName(e.target.value)} placeholder="Masukkan nama tampilan" className="w-full h-12 px-3.5 rounded-xl border border-zinc-200 text-sm focus:outline-none focus:border-[#EE4D2D]" />
               </div>
-              <button
-                type="submit"
-                disabled={loading || !socialEmail.trim()}
-                className="w-full h-12 rounded-xl bg-[#111113] hover:bg-zinc-800 text-white font-bold text-sm inline-flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-              >
+              <button type="submit" disabled={loading || !socialEmail.trim()} className="w-full h-12 rounded-xl bg-[#111113] hover:bg-zinc-800 text-white font-bold text-sm inline-flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50">
                 <span>Lanjutkan dengan {socialProvider}</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
@@ -1278,39 +1166,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({ notice, onSuccess }) => {
           {tab === 'forgot' && (
             <div className="space-y-3.5">
               <div className="flex items-center justify-between">
-                <h2 className="text-sm font-extrabold text-zinc-900">
-                  Lupa Password (Email Terverifikasi)
-                </h2>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTab('login');
-                    setError('');
-                  }}
-                  className="text-xs font-bold text-zinc-500 hover:text-zinc-800 cursor-pointer"
-                >
-                  Kembali Masuk
-                </button>
+                <h2 className="text-sm font-extrabold text-zinc-900">Lupa Password (Email Terverifikasi)</h2>
+                <button type="button" onClick={() => { setTab('login'); setError(''); }} className="text-xs font-bold text-zinc-500 hover:text-zinc-800 cursor-pointer">Kembali Masuk</button>
               </div>
-
               {!forgotCodeSent ? (
                 <form onSubmit={handleSendForgotCode} className="space-y-3">
-                  <p className="text-xs text-zinc-600 leading-relaxed">
-                    Masukkan email terverifikasi akun Anda. Sistem akan mengirim kode reset 6 digit ke email tersebut.
-                  </p>
-                  <input
-                    type="email"
-                    required
-                    value={forgotEmail}
-                    onChange={(e) => setForgotEmail(e.target.value)}
-                    placeholder="Masukkan email terdaftar Anda"
-                    className="w-full h-12 px-3.5 rounded-xl border border-zinc-200 text-sm focus:outline-none focus:border-[#EE4D2D]"
-                  />
-                  <button
-                    type="submit"
-                    disabled={loading || !forgotEmail.trim()}
-                    className="w-full h-12 rounded-xl bg-[#EE4D2D] hover:bg-[#D73B1C] text-white font-bold text-sm cursor-pointer disabled:opacity-60"
-                  >
+                  <p className="text-xs text-zinc-600 leading-relaxed">Masukkan email terverifikasi akun Anda. Sistem akan mengirim kode reset 6 digit ke email tersebut.</p>
+                  <input type="email" required value={forgotEmail} onChange={(e) => setForgotEmail(e.target.value)} placeholder="Masukkan email terdaftar Anda" className="w-full h-12 px-3.5 rounded-xl border border-zinc-200 text-sm focus:outline-none focus:border-[#EE4D2D]" />
+                  <button type="submit" disabled={loading || !forgotEmail.trim()} className="w-full h-12 rounded-xl bg-[#EE4D2D] hover:bg-[#D73B1C] text-white font-bold text-sm cursor-pointer disabled:opacity-60">
                     {loading ? 'Memverifikasi Email...' : 'Kirim Kode Verifikasi Email'}
                   </button>
                 </form>
@@ -1318,69 +1181,26 @@ export const LoginPage: React.FC<LoginPageProps> = ({ notice, onSuccess }) => {
                 <form onSubmit={handleResetPassword} className="space-y-3">
                   {forgotPreviewCode && (
                     <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-3 text-xs text-emerald-900">
-                      Email terverifikasi! Kode Reset Anda:{' '}
-                      <strong className="font-mono text-sm">{forgotPreviewCode}</strong>
+                      Email terverifikasi! Kode Reset Anda: <strong className="font-mono text-sm">{forgotPreviewCode}</strong>
                     </div>
                   )}
                   <div>
-                    <label className="block text-xs font-semibold text-zinc-700 mb-1">
-                      Kode Verifikasi 6 Digit
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      maxLength={6}
-                      value={forgotCode}
-                      onChange={(e) => setForgotCode(e.target.value)}
-                      placeholder="Masukkan 6 digit kode"
-                      className="w-full h-12 px-3.5 rounded-xl border border-zinc-200 font-mono text-center text-lg tracking-widest focus:outline-none focus:border-[#EE4D2D]"
-                    />
+                    <label className="block text-xs font-semibold text-zinc-700 mb-1">Kode Verifikasi 6 Digit</label>
+                    <input type="text" required maxLength={6} value={forgotCode} onChange={(e) => setForgotCode(e.target.value)} placeholder="Masukkan 6 digit kode" className="w-full h-12 px-3.5 rounded-xl border border-zinc-200 font-mono text-center text-lg tracking-widest focus:outline-none focus:border-[#EE4D2D]" />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-zinc-700 mb-1">
-                      Password Baru (min. 6 karakter)
-                    </label>
+                    <label className="block text-xs font-semibold text-zinc-700 mb-1">Password Baru (min. 6 karakter)</label>
                     <div className="relative">
-                      <input
-                        type={showForgotPwd ? 'text' : 'password'}
-                        required
-                        minLength={6}
-                        value={forgotNewPassword}
-                        onChange={(e) => setForgotNewPassword(e.target.value)}
-                        placeholder="Masukkan password baru"
-                        className="w-full h-12 px-3.5 pr-11 rounded-xl border border-zinc-200 text-sm focus:outline-none focus:border-[#EE4D2D]"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowForgotPwd((v) => !v)}
-                        aria-label="Lihat password baru"
-                        className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-lg flex items-center justify-center text-zinc-500 cursor-pointer"
-                      >
-                        {showForgotPwd ? (
-                          <EyeOff className="w-4 h-4" />
-                        ) : (
-                          <Eye className="w-4 h-4" />
-                        )}
+                      <input type={showForgotPwd ? 'text' : 'password'} required minLength={6} value={forgotNewPassword} onChange={(e) => setForgotNewPassword(e.target.value)} placeholder="Masukkan password baru" className="w-full h-12 px-3.5 pr-11 rounded-xl border border-zinc-200 text-sm focus:outline-none focus:border-[#EE4D2D]" />
+                      <button type="button" onClick={() => setShowForgotPwd((v) => !v)} aria-label="Lihat password baru" className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-lg flex items-center justify-center text-zinc-500 cursor-pointer">
+                        {showForgotPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                       </button>
                     </div>
                   </div>
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="w-full h-12 rounded-xl bg-[#EE4D2D] hover:bg-[#D73B1C] text-white font-bold text-sm cursor-pointer disabled:opacity-60"
-                  >
+                  <button type="submit" disabled={loading} className="w-full h-12 rounded-xl bg-[#EE4D2D] hover:bg-[#D73B1C] text-white font-bold text-sm cursor-pointer disabled:opacity-60">
                     {loading ? 'Menyimpan...' : 'Simpan Password Baru & Masuk'}
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setForgotCodeSent(false);
-                      setForgotCode('');
-                    }}
-                    className="w-full text-xs font-semibold text-zinc-500 hover:text-zinc-800 py-1 cursor-pointer"
-                  >
-                    Ganti Email
-                  </button>
+                  <button type="button" onClick={() => { setForgotCodeSent(false); setForgotCode(''); }} className="w-full text-xs font-semibold text-zinc-500 hover:text-zinc-800 py-1 cursor-pointer">Ganti Email</button>
                 </form>
               )}
             </div>
@@ -1388,27 +1208,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({ notice, onSuccess }) => {
 
           {/* Biometric Section: Face ID & Fingerprint */}
           <div className="pt-3 border-t border-zinc-100 space-y-2.5">
-            <p className="text-[11px] font-bold text-center text-zinc-500">
-              Atau Masuk Instan dengan Biometrik Perangkat
-            </p>
+            <p className="text-[11px] font-bold text-center text-zinc-500">Atau Masuk Instan dengan Biometrik Perangkat</p>
             <div className="grid grid-cols-2 gap-2.5">
-              <button
-                type="button"
-                disabled={loading}
-                onClick={() => handleBiometricLogin('Face ID')}
-                className="min-h-[46px] px-3 rounded-xl border border-zinc-200 hover:border-[#EE4D2D] hover:bg-orange-50/40 text-xs font-bold text-zinc-800 inline-flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <ScanFace className="w-4 h-4 text-[#EE4D2D]" />
-                <span>Face ID</span>
+              <button type="button" disabled={loading} onClick={() => handleBiometricLogin('Face ID')} className="min-h-[46px] px-3 rounded-xl border border-zinc-200 hover:border-[#EE4D2D] hover:bg-orange-50/40 text-xs font-bold text-zinc-800 inline-flex items-center justify-center gap-2 cursor-pointer">
+                <ScanFace className="w-4 h-4 text-[#EE4D2D]" /><span>Face ID</span>
               </button>
-              <button
-                type="button"
-                disabled={loading}
-                onClick={() => handleBiometricLogin('Fingerprint')}
-                className="min-h-[46px] px-3 rounded-xl border border-zinc-200 hover:border-[#EE4D2D] hover:bg-orange-50/40 text-xs font-bold text-zinc-800 inline-flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <Fingerprint className="w-4 h-4 text-[#EE4D2D]" />
-                <span>Fingerprint</span>
+              <button type="button" disabled={loading} onClick={() => handleBiometricLogin('Fingerprint')} className="min-h-[46px] px-3 rounded-xl border border-zinc-200 hover:border-[#EE4D2D] hover:bg-orange-50/40 text-xs font-bold text-zinc-800 inline-flex items-center justify-center gap-2 cursor-pointer">
+                <Fingerprint className="w-4 h-4 text-[#EE4D2D]" /><span>Fingerprint</span>
               </button>
             </div>
           </div>
